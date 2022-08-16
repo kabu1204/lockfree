@@ -5,73 +5,63 @@ import (
 	"sync/atomic"
 )
 
-const (
-	order     = 4
-	uint64max = ^(uint64(0))
-)
-
-type entry struct {
-	cycle, index uint64
-}
-
-type ncq struct {
+type ncq8b struct {
 	head, tail uint64
 	n          uint64
-	entries    [uint64(1) << order]atomic.Value
+	entries    [uint64(1) << order]uint64
 }
 
-func (q *ncq) InitEmpty() {
+func (q *ncq8b) InitEmpty() {
 	q.n = uint64(1) << order
 	q.head = uint64(1) << order
 	q.tail = uint64(1) << order
 	for i, _ := range q.entries {
-		q.entries[i].Store(entry{cycle: 0, index: 0})
+		q.entries[i] = 0 // cycle=0 + index=0
 	}
 }
 
-func (q *ncq) InitFull() {
+func (q *ncq8b) InitFull() {
 	q.head = 0
 	q.tail = uint64(1) << order
 	q.n = uint64(1) << order
 	for i, _ := range q.entries {
-		q.entries[lockfree.CacheRemap16B(uint64(i))].Store(entry{cycle: 0, index: uint64(i)})
+		q.entries[lockfree.CacheRemap16B(uint64(i))] = uint64(i)
 	}
 }
 
-func (q *ncq) Enqueue(index uint64) {
-	newEnt := entry{index: index}
-	var tail, j, tcycle uint64
-	var ent entry
+func (q *ncq8b) Enqueue(index uint64) {
+	var tail, j, tcycle, ent, ecycle, newEnt uint64
 	for {
 		tail = atomic.LoadUint64(&q.tail)
 		j = lockfree.CacheRemap16B(tail)
-		ent = q.entries[j].Load().(entry)
+		ent = atomic.LoadUint64(&q.entries[j])
 		tcycle = tail & ^(q.n - 1) >> order // tail/n = (tail & ~(n - 1)) >> order
-		if ent.cycle == tcycle {
+		ecycle = ent & ^(q.n - 1) >> order
+		if ecycle == tcycle {
 			atomic.CompareAndSwapUint64(&q.tail, tail, tail+1)
 			continue
 		}
-		if ent.cycle+1 != tcycle {
+		if ecycle+1 != tcycle {
 			continue
 		}
-		newEnt.cycle = tcycle
-		if q.entries[j].CompareAndSwap(ent, newEnt) {
+		newEnt = (tcycle << order) + index
+		if atomic.CompareAndSwapUint64(&q.entries[j], ent, newEnt) {
 			break
 		}
 	}
 	atomic.CompareAndSwapUint64(&q.tail, tail, tail+1)
 }
 
-func (q *ncq) Dequeue() (index uint64) {
-	var head, j, hcycle uint64
-	var ent entry
+func (q *ncq8b) Dequeue() (index uint64) {
+	var head, j, hcycle, ent, ecycle uint64
 	for {
 		head = atomic.LoadUint64(&q.head)
 		j = lockfree.CacheRemap16B(head)
-		ent = q.entries[j].Load().(entry)
+		ent = atomic.LoadUint64(&q.entries[j])
 		hcycle = head & ^(q.n - 1) >> order // head/n = (head & ~(n - 1)) >> order
-		if ent.cycle != hcycle {
-			if ent.cycle+1 == hcycle { // wrap around
+		ecycle = ent & ^(q.n - 1) >> order
+		if ecycle != hcycle {
+			if ecycle+1 == hcycle { // wrap around
 				return uint64max
 			}
 			continue
@@ -80,9 +70,9 @@ func (q *ncq) Dequeue() (index uint64) {
 			break
 		}
 	}
-	return ent.index
+	return ent & (q.n - 1)
 }
 
-func NewNCQ() *ncq {
-	return &ncq{}
+func NewNCQ8b() *ncq8b {
+	return &ncq8b{}
 }

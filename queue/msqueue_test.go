@@ -148,6 +148,38 @@ func BenchmarkChannelReadWrite(b *testing.B) {
 	})
 }
 
+func BenchmarkNCQReadWrite(b *testing.B) {
+	b.Run("50Enqueue50Dequeue/NCQ", func(b *testing.B) {
+		q := NewLfQueue(NewNCQ(), NewNCQ())
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if fastrand.Uint32n(2) == 0 {
+					q.Enqueue(uint64(fastrand.Uint32()))
+				} else {
+					q.Dequeue()
+				}
+			}
+		})
+	})
+}
+
+func BenchmarkNCQ8BReadWrite(b *testing.B) {
+	b.Run("50Enqueue50Dequeue/NCQ8B", func(b *testing.B) {
+		q := NewLfQueue(NewNCQ8b(), NewNCQ8b())
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if fastrand.Uint32n(2) == 0 {
+					q.Enqueue(uint64(fastrand.Uint32()))
+				} else {
+					q.Dequeue()
+				}
+			}
+		})
+	})
+}
+
 func TestNewNCQ(t *testing.T) {
 	t.Logf("cache line size: %v", unsafe.Sizeof(cpu.CacheLinePad{}))
 	a := lockfree.CacheRemap16B(10)
@@ -169,6 +201,29 @@ func TestNcq_Enqueue(t *testing.T) {
 
 func TestNcq_Dequeue(t *testing.T) {
 	q := ncq{}
+	q.InitFull()
+	t.Log(q)
+	for i := 0; i < 16; i++ {
+		assert.Equal(t, uint64(i), q.Dequeue())
+	}
+	assert.Equal(t, uint64max, q.Dequeue())
+	t.Log(q)
+}
+
+func TestNcq8b_Enqueue(t *testing.T) {
+	q := ncq8b{}
+	q.InitEmpty()
+	t.Log(q)
+	for i := 0; i < 16; i++ {
+		q.Enqueue(uint64(i))
+	}
+	t.Log(q)
+	q.Enqueue(16)
+	t.Log(q)
+}
+
+func TestNcq8b_Dequeue(t *testing.T) {
+	q := ncq8b{}
 	q.InitFull()
 	t.Log(q)
 	for i := 0; i < 16; i++ {
