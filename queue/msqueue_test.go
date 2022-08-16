@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"github.com/bytedance/gopkg/collection/lscq"
 	"github.com/bytedance/gopkg/lang/fastrand"
-	"github.com/kabu1204/lockfree"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/sys/cpu"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,10 +19,10 @@ type lnode struct {
 }
 
 type normalQ struct {
-	array                      []interface{}
-	head                       *lnode
-	p1, p2, p3, p4, p5, p6, p7 int64
-	tail                       *lnode
+	array []interface{}
+	head  *lnode
+	_     [unsafe.Sizeof(cpu.CacheLinePad{})]byte
+	tail  *lnode
 	sync.Mutex
 }
 
@@ -182,55 +182,45 @@ func BenchmarkNCQ8BReadWrite(b *testing.B) {
 
 func TestNewNCQ(t *testing.T) {
 	t.Logf("cache line size: %v", unsafe.Sizeof(cpu.CacheLinePad{}))
-	a := lockfree.CacheRemap16B(10)
-	b := lockfree.CacheRemap16B(11)
+	a := cacheRemap8B(10)
+	b := cacheRemap8B(11)
 	t.Logf("a=%v b=%v", a, b)
 }
 
 func TestNcq_Enqueue(t *testing.T) {
 	q := ncq{}
 	q.InitEmpty()
-	t.Log(q)
-	for i := 0; i < 16; i++ {
+	for i := 0; i < int(qsize); i++ {
 		q.Enqueue(uint64(i))
 	}
-	t.Log(q)
 	q.Enqueue(16)
-	t.Log(q)
 }
 
 func TestNcq_Dequeue(t *testing.T) {
 	q := ncq{}
 	q.InitFull()
-	t.Log(q)
-	for i := 0; i < 16; i++ {
+	for i := 0; i < int(qsize); i++ {
 		assert.Equal(t, uint64(i), q.Dequeue())
 	}
 	assert.Equal(t, uint64max, q.Dequeue())
-	t.Log(q)
 }
 
 func TestNcq8b_Enqueue(t *testing.T) {
 	q := ncq8b{}
 	q.InitEmpty()
-	t.Log(q)
-	for i := 0; i < 16; i++ {
+	for i := 0; i < int(qsize); i++ {
 		q.Enqueue(uint64(i))
 	}
-	t.Log(q)
 	q.Enqueue(16)
-	t.Log(q)
 }
 
 func TestNcq8b_Dequeue(t *testing.T) {
 	q := ncq8b{}
 	q.InitFull()
-	t.Log(q)
-	for i := 0; i < 16; i++ {
+	for i := 0; i < int(qsize); i++ {
 		assert.Equal(t, uint64(i), q.Dequeue())
 	}
 	assert.Equal(t, uint64max, q.Dequeue())
-	t.Log(q)
 }
 
 func PrintBit(x uint64) {
@@ -260,4 +250,24 @@ func TestBit(t *testing.T) {
 	PrintBit(^(b - 1))
 	PrintBit(c)
 	PrintBit(c & (^(b - 1)))
+}
+
+type Student struct {
+	name string
+}
+
+func TestReflect(tt *testing.T) {
+	var a int = 50
+	v := reflect.ValueOf(a) // 返回Value类型对象，值为50
+	t := reflect.TypeOf(a)  // 返回Type类型对象，值为int
+	fmt.Println(v, t, v.Type(), t.Kind())
+
+	var b [5]int = [5]int{5, 6, 7, 8}
+	fmt.Println(reflect.TypeOf(b), reflect.TypeOf(b).Kind(), reflect.TypeOf(b).Elem()) // [5]int array int
+
+	var Pupil Student
+	p := reflect.ValueOf(Pupil) // 使用ValueOf()获取到结构体的Value对象
+
+	fmt.Println(p.Type()) // 输出:Student
+	fmt.Println(p.Kind()) // 输出:struct
 }

@@ -6,7 +6,7 @@ import (
 	"unsafe"
 )
 
-type ncq8b struct {
+type ncq8bUnsafe struct {
 	head    uint64
 	_       [unsafe.Sizeof(cpu.CacheLinePad{})]byte
 	tail    uint64
@@ -14,7 +14,7 @@ type ncq8b struct {
 	entries [uint64(1) << order]uint64
 }
 
-func (q *ncq8b) InitEmpty() {
+func (q *ncq8bUnsafe) InitEmpty() {
 	q.head = uint64(1) << order
 	q.tail = uint64(1) << order
 	for i, _ := range q.entries {
@@ -22,7 +22,7 @@ func (q *ncq8b) InitEmpty() {
 	}
 }
 
-func (q *ncq8b) InitFull() {
+func (q *ncq8bUnsafe) InitFull() {
 	q.head = 0
 	q.tail = uint64(1) << order
 	for i, _ := range q.entries {
@@ -30,7 +30,7 @@ func (q *ncq8b) InitFull() {
 	}
 }
 
-func (q *ncq8b) Enqueue(index uint64) {
+func (q *ncq8bUnsafe) Enqueue(index uint64) {
 	var tail, j, tcycle, ent, ecycle, newEnt uint64
 	for {
 		tail = atomic.LoadUint64(&q.tail)
@@ -53,7 +53,7 @@ func (q *ncq8b) Enqueue(index uint64) {
 	atomic.CompareAndSwapUint64(&q.tail, tail, tail+1)
 }
 
-func (q *ncq8b) Dequeue() (index uint64) {
+func (q *ncq8bUnsafe) Dequeue() (index uint64) {
 	var head, j, hcycle, ent, ecycle uint64
 	for {
 		head = atomic.LoadUint64(&q.head)
@@ -74,6 +74,6 @@ func (q *ncq8b) Dequeue() (index uint64) {
 	return ent & (qsize - 1)
 }
 
-func NewNCQ8b() *ncq8b {
-	return &ncq8b{}
+func NewNCQ8bUnsafe() *ncq8bUnsafe {
+	return &ncq8bUnsafe{}
 }

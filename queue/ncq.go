@@ -1,13 +1,9 @@
 package queue
 
 import (
-	"github.com/kabu1204/lockfree"
+	"golang.org/x/sys/cpu"
 	"sync/atomic"
-)
-
-const (
-	order     = 4
-	uint64max = ^(uint64(0))
+	"unsafe"
 )
 
 type entry struct {
@@ -15,13 +11,14 @@ type entry struct {
 }
 
 type ncq struct {
-	head, tail uint64
-	n          uint64
-	entries    [uint64(1) << order]atomic.Value
+	head    uint64
+	_       [unsafe.Sizeof(cpu.CacheLinePad{})]byte
+	tail    uint64
+	_       [unsafe.Sizeof(cpu.CacheLinePad{})]byte
+	entries [uint64(1) << order]atomic.Value
 }
 
 func (q *ncq) InitEmpty() {
-	q.n = uint64(1) << order
 	q.head = uint64(1) << order
 	q.tail = uint64(1) << order
 	for i, _ := range q.entries {
@@ -32,9 +29,8 @@ func (q *ncq) InitEmpty() {
 func (q *ncq) InitFull() {
 	q.head = 0
 	q.tail = uint64(1) << order
-	q.n = uint64(1) << order
 	for i, _ := range q.entries {
-		q.entries[lockfree.CacheRemap16B(uint64(i))].Store(entry{cycle: 0, index: uint64(i)})
+		q.entries[cacheRemap16B(uint64(i))].Store(entry{cycle: 0, index: uint64(i)})
 	}
 }
 
@@ -44,9 +40,9 @@ func (q *ncq) Enqueue(index uint64) {
 	var ent entry
 	for {
 		tail = atomic.LoadUint64(&q.tail)
-		j = lockfree.CacheRemap16B(tail)
+		j = cacheRemap16B(tail)
 		ent = q.entries[j].Load().(entry)
-		tcycle = tail & ^(q.n - 1) >> order // tail/n = (tail & ~(n - 1)) >> order
+		tcycle = tail & ^(qsize - 1) >> order // tail/n = (tail & ~(n - 1)) >> order
 		if ent.cycle == tcycle {
 			atomic.CompareAndSwapUint64(&q.tail, tail, tail+1)
 			continue
@@ -67,9 +63,9 @@ func (q *ncq) Dequeue() (index uint64) {
 	var ent entry
 	for {
 		head = atomic.LoadUint64(&q.head)
-		j = lockfree.CacheRemap16B(head)
+		j = cacheRemap16B(head)
 		ent = q.entries[j].Load().(entry)
-		hcycle = head & ^(q.n - 1) >> order // head/n = (head & ~(n - 1)) >> order
+		hcycle = head & ^(qsize - 1) >> order // head/n = (head & ~(n - 1)) >> order
 		if ent.cycle != hcycle {
 			if ent.cycle+1 == hcycle { // wrap around
 				return uint64max

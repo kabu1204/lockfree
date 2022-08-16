@@ -1,6 +1,9 @@
 package queue
 
-import "golang.org/x/sys/cpu"
+import (
+	"golang.org/x/sys/cpu"
+	"unsafe"
+)
 
 type faq interface {
 	Enqueue(index uint64)
@@ -10,10 +13,10 @@ type faq interface {
 }
 
 type LfQueue struct {
-	fq               faq
-	xxx_cachelinePad cpu.CacheLinePad
-	aq               faq
-	data             [uint64(1) << order]interface{}
+	fq   faq
+	_    [unsafe.Sizeof(cpu.CacheLinePad{})]byte
+	aq   faq
+	data [uint64(1) << order]uint64
 }
 
 func NewLfQueue(aq, fq faq) *LfQueue {
@@ -26,7 +29,7 @@ func NewLfQueue(aq, fq faq) *LfQueue {
 	return lfq
 }
 
-func (q *LfQueue) Enqueue(val interface{}) bool {
+func (q *LfQueue) Enqueue(val uint64) bool {
 	index := q.fq.Dequeue()
 	if index == uint64max {
 		return false
@@ -36,12 +39,12 @@ func (q *LfQueue) Enqueue(val interface{}) bool {
 	return true
 }
 
-func (q *LfQueue) Dequeue() interface{} {
+func (q *LfQueue) Dequeue() (data uint64, ok bool) {
 	index := q.aq.Dequeue()
 	if index == uint64max {
-		return false
+		return 0, false
 	}
 	val := q.data[index]
 	q.fq.Enqueue(index)
-	return val
+	return val, true
 }
