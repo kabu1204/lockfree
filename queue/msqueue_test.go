@@ -3,13 +3,16 @@ package queue
 import (
 	"fmt"
 	"github.com/bytedance/gopkg/collection/lscq"
+	"github.com/bytedance/gopkg/collection/skipset"
 	"github.com/bytedance/gopkg/lang/fastrand"
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/sys/cpu"
 	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -296,15 +299,59 @@ func TestFAA(tt *testing.T) {
 
 func TestScq_Enqueue(t *testing.T) {
 	t.Log(unused)
+	q := NewSCQ()
+	q.InitFull()
+	//for i := uint64(0); i < qsize; i++ {
+	//	q.Enqueue(i)
+	//}
+	//pp.Println(q)
+	//q.Enqueue(6)
+	//for _, ent := range q.entries {
+	//	PrintEntry(ent)
+	//}
+	//for i := uint64(0); i < qsize; i++ {
+	//	data, ok := q.Dequeue()
+	//	assert.True(t, ok)
+	//	assert.Equal(t, i, data)
+	//}
+}
+
+func TestScq_Dequeue(t *testing.T) {
 	q := NewLfQueue(NewSCQ(), NewSCQ())
-	for i := uint64(0); i < qsize; i++ {
-		q.Enqueue(i)
+	poolEnqueue := gopool.NewPool("pool", 60, &gopool.Config{})
+	poolDequeue := gopool.NewPool("depool", 60, &gopool.Config{})
+	m1 := skipset.NewUint64()
+	m2 := skipset.NewUint64()
+	var wg sync.WaitGroup
+	wg.Add(120)
+	for i := 0; i < 60; i++ {
+		poolEnqueue.Go(func() {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				val := fastrand.Uint64()
+				m1.Add(val)
+				q.Enqueue(val)
+			}
+		})
 	}
-	for i := uint64(0); i < qsize; i++ {
-		data, ok := q.Dequeue()
-		assert.True(t, ok)
-		assert.Equal(t, i, data)
+	for i := 0; i < 60; i++ {
+		poolDequeue.Go(func() {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				for {
+					data, ok := q.Dequeue()
+					if ok {
+						m2.Add(data)
+						break
+					}
+				}
+			}
+		})
 	}
+	wg.Wait()
+	time.Sleep(1 * time.Second)
+	t.Log(poolEnqueue.WorkerCount(), poolDequeue.WorkerCount(), m1.Len(), m2.Len())
+	assert.Equal(t, m1.Len(), m2.Len())
 }
 
 func TestAtomicOR(t *testing.T) {

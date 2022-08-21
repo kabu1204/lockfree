@@ -44,32 +44,38 @@ func (q *scq) InitEmpty() {
 }
 
 func (q *scq) InitFull() {
-	q.head = 0
-	q.tail = qsize // n
+	q.head = scqsize
+	q.tail = scqsize + qsize // n
 	q.threshold = 3*int64(qsize) - 1
 	var i uint64
 	for i = 0; i < qsize; i++ {
-		q.entries[cacheRemap8BSCQ(i)] = flagSafe | i
+		q.entries[cacheRemap8BSCQ(i)] = (1 << (order + 2)) | flagSafe | i
 	}
 	for ; i < scqsize; i++ {
 		q.entries[cacheRemap8BSCQ(i)] = mask
 	}
 }
 
+func PrintEntry(ent uint64) {
+	ecycle := (ent & ^mask) >> 1
+	eindex := ent & unused
+	isSafe := ent & flagSafe
+	fmt.Printf("ecycle, eindex, isSafe = (%v,\t%v,\t%v)\n", ecycle, eindex, isSafe == flagSafe)
+}
+
 func (q *scq) Enqueue(index uint64) {
 	var tail, j, tcycle, ent, ecycle, eindex, isSafe, newEnt uint64
 	for {
 		tail = atomic.AddUint64(&q.tail, 1) - 1
-		tcycle = (tail & ^(scqsize - 1)) << 1 // Cycle(T) actually equals (tcycle >> (order+2))
+		tcycle = tail & ^(scqsize - 1) // Cycle(T) actually equals (tcycle >> (order+2))
 		j = cacheRemap8BSCQ(tail)
 	EnqueueRELOAD:
 		ent = atomic.LoadUint64(&q.entries[j])
-		ecycle = ent & ^mask
+		ecycle = (ent & ^mask) >> 1
 		eindex = ent & unused
 		isSafe = ent & flagSafe
-		//fmt.Printf("tail, tcycle, ecycle, eindex, isSafe: (%v, %v, %v, %v, %v)\n", tail, tcycle, ecycle, eindex, isSafe)
 		if ecycle < tcycle && eindex == unused && (isSafe == flagSafe || atomic.LoadUint64(&q.head) <= tail) {
-			newEnt = tcycle | flagSafe | index
+			newEnt = (tcycle << 1) | flagSafe | index
 			if !atomic.CompareAndSwapUint64(&q.entries[j], ent, newEnt) {
 				goto EnqueueRELOAD
 			}
@@ -88,25 +94,22 @@ func (q *scq) Dequeue() (index uint64) {
 	var head, j, hcycle, ent, ecycle, eindex, isSafe, newEnt, tail uint64
 	for {
 		head = atomic.AddUint64(&q.head, 1) - 1
-		hcycle = (head & ^(scqsize - 1)) << 1
+		hcycle = head & ^(scqsize - 1)
 		j = cacheRemap8BSCQ(head)
 	DequeueRELOAD:
 		ent = atomic.LoadUint64(&q.entries[j])
-		ecycle = ent & ^mask
+		ecycle = (ent & ^mask) >> 1
 		eindex = ent & unused
 		isSafe = ent & flagSafe
+		//fmt.Printf("head, hcycle, ecycle, eindex, isSafe: (%v, %v, %v, %v, %v)\n", head, hcycle, ecycle, eindex, isSafe)
 		if ecycle == hcycle {
-			//atomic.StoreUint64(&q.entries[j], unused)
 			atomicOrUint64(&(q.entries[j]), unused)
-			if eindex == unused {
-				fmt.Printf("head, hcycle, ecycle, eindex, isSafe: (%v, %v, %v, %v, %v)\n", head, hcycle, ecycle, eindex, isSafe)
-			}
 			return eindex
 		}
 		if ecycle < hcycle {
-			newEnt = ecycle | eindex
+			newEnt = (ecycle << 1) | eindex
 			if eindex == unused {
-				newEnt = hcycle | isSafe | unused
+				newEnt = (hcycle << 1) | isSafe | unused
 			}
 			if !atomic.CompareAndSwapUint64(&q.entries[j], ent, newEnt) {
 				goto DequeueRELOAD
