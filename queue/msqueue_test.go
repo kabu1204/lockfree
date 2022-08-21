@@ -65,6 +65,22 @@ func TestAtomicValueCopy(t *testing.T) {
 	t.Log(atomicNilPointer)
 }
 
+func BenchmarkSCQReadWrite(b *testing.B) {
+	b.Run("50Enqueue50Dequeue/SCQ", func(b *testing.B) {
+		q := NewLfQueue(NewSCQ(), NewSCQ())
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if fastrand.Uint32n(2) == 0 {
+					q.Enqueue(uint64(fastrand.Uint32()))
+				} else {
+					q.Dequeue()
+				}
+			}
+		})
+	})
+}
+
 func BenchmarkMSQueueReadWrite(b *testing.B) {
 	b.Run("50Enqueue50Dequeue/MSQueue", func(b *testing.B) {
 		q := NewMSQueue()
@@ -270,4 +286,44 @@ func TestReflect(tt *testing.T) {
 
 	fmt.Println(p.Type()) // 输出:Student
 	fmt.Println(p.Kind()) // 输出:struct
+}
+
+func TestFAA(tt *testing.T) {
+	tail := uint64(0)
+	t := atomic.AddUint64(&tail, 1)
+	tt.Log(tail, t)
+}
+
+func TestScq_Enqueue(t *testing.T) {
+	t.Log(unused)
+	q := NewLfQueue(NewSCQ(), NewSCQ())
+	for i := uint64(0); i < qsize; i++ {
+		q.Enqueue(i)
+	}
+	for i := uint64(0); i < qsize; i++ {
+		data, ok := q.Dequeue()
+		assert.True(t, ok)
+		assert.Equal(t, i, data)
+	}
+}
+
+func TestAtomicOR(t *testing.T) {
+	a := uint32(0b10101101)
+	b := uint32(0b11001011)
+	want1 := a | b
+	atomicOrUint32(&a, b)
+	assert.Equal(t, want1, a)
+
+	c := uint64(0b1011100110110001101011010010110110101001101011010010110100101100)
+	d := uint64(0b0101101110101011001011011010111100101010000111001110101010111001)
+	want2 := c | d
+	atomicOrUint64(&c, d)
+	assert.Equal(t, want2, c)
+
+	e := uint64(flagUnsafe | unused)
+	f := uint64(2<<(order+2) | flagSafe | 16)
+	atomicOrUint64(&f, e)
+	assert.Equal(t, uint64(2), (f & ^mask)>>(order+2))
+	assert.Equal(t, flagSafe, f&flagSafe)
+	assert.Equal(t, unused, f&unused)
 }

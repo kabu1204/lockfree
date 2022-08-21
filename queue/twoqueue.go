@@ -16,7 +16,7 @@ type LfQueue struct {
 	fq   faq
 	_    [unsafe.Sizeof(cpu.CacheLinePad{})]byte
 	aq   faq
-	data [uint64(1) << order]uint64
+	data [qsize]uint64
 }
 
 func NewLfQueue(aq, fq faq) *LfQueue {
@@ -41,7 +41,7 @@ func (q *LfQueue) Enqueue(val uint64) bool {
 
 func (q *LfQueue) Dequeue() (data uint64, ok bool) {
 	index := q.aq.Dequeue()
-	if index == uint64max {
+	if index == empty {
 		return 0, false
 	}
 	val := q.data[index]

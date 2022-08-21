@@ -12,7 +12,8 @@ const (
 const (
 	order             = 16
 	uint64max         = ^(uint64(0))
-	qsize             = uint64(1) << order
+	qsize             = uint64(1) << order // namely n in paper
+	scqsize           = qsize << 1         // 2n
 	cacheBlockSize8B  = cacheLineSize / 8
 	cacheBlockSize16B = cacheLineSize / 16
 )
@@ -42,4 +43,9 @@ func cacheRemap8B(index uint64) uint64 {
 	cacheLineNum := (rawIndex) % (qsize / cacheBlockSize8B)
 	cacheLineIdx := rawIndex / (qsize / cacheBlockSize8B)
 	return cacheLineNum*cacheBlockSize8B + cacheLineIdx
+}
+
+func cacheRemap8BSCQ(index uint64) uint64 {
+	rawIndex := index & (scqsize - 1)
+	return (rawIndex >> (order - 2)) | ((index << 3) & (scqsize - 1))
 }
