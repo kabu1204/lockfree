@@ -2,7 +2,12 @@
 
 package queue
 
-import _ "unsafe"
+import (
+	"golang.org/x/sys/cpu"
+	"unsafe"
+)
+
+const offsetARM64HasATOMICS = unsafe.Offsetof(cpu.ARM64.HasATOMICS)
 
 //go:linkname atomicOrUint32 github.com/kabu1204/lockfree/queue.atomicOr
 //go:nosplit

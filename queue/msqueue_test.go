@@ -326,4 +326,6 @@ func TestAtomicOR(t *testing.T) {
 	assert.Equal(t, uint64(2), (f & ^mask)>>(order+2))
 	assert.Equal(t, flagSafe, f&flagSafe)
 	assert.Equal(t, unused, f&unused)
+
+	t.Log(cpu.X86)
 }
