@@ -79,3 +79,10 @@ ok:
     CSET	EQ, R0
     MOVB	R0, ret+40(FP)
     RET
+
+TEXT ·loadUint128(SB),NOSPLIT,$0-24
+	MOVD	ptr+0(FP), R0
+	LDAXP	(R0), (R0, R1)
+	MOVD	R0, ret+8(FP)
+	MOVD	R1, ret+16(FP)
+	RET
