@@ -2,7 +2,6 @@ package queue
 
 import (
 	"fmt"
-	"github.com/bytedance/gopkg/collection/lscq"
 	"github.com/bytedance/gopkg/collection/skipset"
 	"github.com/bytedance/gopkg/lang/fastrand"
 	"github.com/bytedance/gopkg/util/gopool"
@@ -116,21 +115,21 @@ func BenchmarkMSQueuePoolReadWrite(b *testing.B) {
 	})
 }
 
-func BenchmarkLSCQueueReadWrite(b *testing.B) {
-	b.Run("50Enqueue50Dequeue/LSCQueue", func(b *testing.B) {
-		q := lscq.NewUint64()
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				if fastrand.Uint32n(2) == 0 {
-					q.Enqueue(uint64(fastrand.Uint32()))
-				} else {
-					q.Dequeue()
-				}
-			}
-		})
-	})
-}
+//func BenchmarkLSCQueueReadWrite(b *testing.B) {
+//	b.Run("50Enqueue50Dequeue/LSCQueue", func(b *testing.B) {
+//		q := lscq.NewUint64()
+//		b.ResetTimer()
+//		b.RunParallel(func(pb *testing.PB) {
+//			for pb.Next() {
+//				if fastrand.Uint32n(2) == 0 {
+//					q.Enqueue(uint64(fastrand.Uint32()))
+//				} else {
+//					q.Dequeue()
+//				}
+//			}
+//		})
+//	})
+//}
 
 func BenchmarkLockQueueReadWrite(b *testing.B) {
 	b.Run("50Enqueue50Dequeue/LockQueue", func(b *testing.B) {
@@ -384,7 +383,30 @@ type node128 struct {
 
 func TestCasUint128(t *testing.T) {
 	addr := &node128{data1: 123, data2: 456}
-	ok := compareAndSwapUint128((*uint128)(unsafe.Pointer(addr)), 123, 456, 789, 101112)
-	t.Log(ok)
-	t.Log(addr)
+	ok := compareAndSwapUint128((*uint128)(unsafe.Pointer(addr)), 121, 456, 789, 101112)
+	assert.False(t, ok)
+	assert.Equal(t, node128{data1: 123, data2: 456}, *addr)
+
+	ok = compareAndSwapUint128((*uint128)(unsafe.Pointer(addr)), 123, 400, 789, 101112)
+	assert.False(t, ok)
+	assert.Equal(t, node128{data1: 123, data2: 456}, *addr)
+
+	ok = compareAndSwapUint128((*uint128)(unsafe.Pointer(addr)), 123, 456, 789, 101112)
+	assert.True(t, ok)
+	assert.Equal(t, node128{data1: 789, data2: 101112}, *addr)
+}
+
+func TestCASP(t *testing.T) {
+	addr := &node128{data1: 123, data2: 456}
+	ok := CASPUint128((*uint128)(unsafe.Pointer(addr)), 121, 456, 789, 101112)
+	assert.False(t, ok)
+	assert.Equal(t, node128{data1: 123, data2: 456}, *addr)
+
+	ok = CASPUint128((*uint128)(unsafe.Pointer(addr)), 123, 400, 789, 101112)
+	assert.False(t, ok)
+	assert.Equal(t, node128{data1: 123, data2: 456}, *addr)
+
+	ok = CASPUint128((*uint128)(unsafe.Pointer(addr)), 123, 456, 789, 101112)
+	assert.True(t, ok)
+	assert.Equal(t, node128{data1: 789, data2: 101112}, *addr)
 }

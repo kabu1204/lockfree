@@ -33,5 +33,7 @@ type uint128 [2]uint64
 
 func compareAndSwapUint128(addr *uint128, old1, old2, new1, new2 uint64) (swapped bool)
 
+func CASPUint128(addr *uint128, old1, old2, new1, new2 uint64) (swapped bool)
+
 //go:linkname runtimenoescape runtime.noescape
 func runtimenoescape(p unsafe.Pointer) unsafe.Pointer
