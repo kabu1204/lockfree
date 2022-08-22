@@ -49,10 +49,10 @@ func (q *scq) InitFull() {
 	q.threshold = 3*int64(qsize) - 1
 	var i uint64
 	for i = 0; i < qsize; i++ {
-		q.entries[cacheRemap8BSCQ(i)] = (1 << (order + 2)) | flagSafe | i
+		q.entries[cacheRemap8BSCQRaw(i)] = (1 << (order + 2)) | flagSafe | i
 	}
 	for ; i < scqsize; i++ {
-		q.entries[cacheRemap8BSCQ(i)] = mask
+		q.entries[cacheRemap8BSCQRaw(i)] = mask
 	}
 }
 
@@ -68,7 +68,7 @@ func (q *scq) Enqueue(index uint64) {
 	for {
 		tail = atomic.AddUint64(&q.tail, 1) - 1
 		tcycle = tail & ^(scqsize - 1) // Cycle(T) actually equals (tcycle >> (order+2))
-		j = cacheRemap8BSCQ(tail)
+		j = cacheRemap8BSCQRaw(tail)
 	EnqueueRELOAD:
 		ent = atomic.LoadUint64(&q.entries[j])
 		ecycle = (ent & ^mask) >> 1
@@ -95,7 +95,7 @@ func (q *scq) Dequeue() (index uint64) {
 	for {
 		head = atomic.AddUint64(&q.head, 1) - 1
 		hcycle = head & ^(scqsize - 1)
-		j = cacheRemap8BSCQ(head)
+		j = cacheRemap8BSCQRaw(head)
 	DequeueRELOAD:
 		ent = atomic.LoadUint64(&q.entries[j])
 		ecycle = (ent & ^mask) >> 1

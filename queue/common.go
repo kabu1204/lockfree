@@ -45,7 +45,12 @@ func cacheRemap8B(index uint64) uint64 {
 	return cacheLineNum*cacheBlockSize8B + cacheLineIdx
 }
 
-func cacheRemap8BSCQ(index uint64) uint64 {
+func cacheRemap8BSCQRaw(index uint64) uint64 {
 	rawIndex := index & (scqsize - 1)
 	return (rawIndex >> (order - 2)) | ((index << 3) & (scqsize - 1))
+}
+
+func cacheRemap8BSCQ(index uint64) uint64 {
+	rawIndex := index & (qsize - 1)
+	return (rawIndex >> (order - 3)) | ((index << 3) & (qsize - 1))
 }
