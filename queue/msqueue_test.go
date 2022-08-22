@@ -376,3 +376,15 @@ func TestAtomicOR(t *testing.T) {
 
 	t.Log(cpu.X86)
 }
+
+type node128 struct {
+	data1 uint64
+	data2 uint64
+}
+
+func TestCasUint128(t *testing.T) {
+	addr := &node128{data1: 123, data2: 456}
+	ok := compareAndSwapUint128((*uint128)(unsafe.Pointer(addr)), 123, 456, 789, 101112)
+	t.Log(ok)
+	t.Log(addr)
+}
