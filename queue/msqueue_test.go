@@ -5,6 +5,7 @@ import (
 	"github.com/bytedance/gopkg/collection/skipset"
 	"github.com/bytedance/gopkg/lang/fastrand"
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/kabu1204/lockfree/queue/lscq"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/sys/cpu"
 	"reflect"
@@ -67,6 +68,22 @@ func TestAtomicValueCopy(t *testing.T) {
 	t.Log(atomicNilPointer)
 }
 
+func BenchmarkSCQCas2ReadWrite(b *testing.B) {
+	b.Run("50Enqueue50Dequeue/SCQCas2", func(b *testing.B) {
+		q := NewScqCas2()
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if fastrand.Uint32n(2) == 0 {
+					q.Enqueue(uint64(fastrand.Uint32()))
+				} else {
+					q.Dequeue()
+				}
+			}
+		})
+	})
+}
+
 func BenchmarkSCQReadWrite(b *testing.B) {
 	b.Run("50Enqueue50Dequeue/SCQ", func(b *testing.B) {
 		q := NewLfQueue(NewSCQ(), NewSCQ())
@@ -115,21 +132,21 @@ func BenchmarkMSQueuePoolReadWrite(b *testing.B) {
 	})
 }
 
-//func BenchmarkLSCQueueReadWrite(b *testing.B) {
-//	b.Run("50Enqueue50Dequeue/LSCQueue", func(b *testing.B) {
-//		q := lscq.NewUint64()
-//		b.ResetTimer()
-//		b.RunParallel(func(pb *testing.PB) {
-//			for pb.Next() {
-//				if fastrand.Uint32n(2) == 0 {
-//					q.Enqueue(uint64(fastrand.Uint32()))
-//				} else {
-//					q.Dequeue()
-//				}
-//			}
-//		})
-//	})
-//}
+func BenchmarkLSCQueueReadWrite(b *testing.B) {
+	b.Run("50Enqueue50Dequeue/LSCQueue", func(b *testing.B) {
+		q := lscq.NewUint64()
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if fastrand.Uint32n(2) == 0 {
+					q.Enqueue(uint64(fastrand.Uint32()))
+				} else {
+					q.Dequeue()
+				}
+			}
+		})
+	})
+}
 
 func BenchmarkLockQueueReadWrite(b *testing.B) {
 	b.Run("50Enqueue50Dequeue/LockQueue", func(b *testing.B) {
@@ -353,6 +370,44 @@ func TestScq_Dequeue(t *testing.T) {
 	assert.Equal(t, m1.Len(), m2.Len())
 }
 
+func TestScqCas2_Dequeue(t *testing.T) {
+	q := NewScqCas2()
+	poolEnqueue := gopool.NewPool("pool", 60, &gopool.Config{})
+	poolDequeue := gopool.NewPool("depool", 60, &gopool.Config{})
+	m1 := skipset.NewUint64()
+	m2 := skipset.NewUint64()
+	var wg sync.WaitGroup
+	wg.Add(120)
+	for i := 0; i < 60; i++ {
+		poolEnqueue.Go(func() {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				val := fastrand.Uint64()
+				m1.Add(val)
+				q.Enqueue(val)
+			}
+		})
+	}
+	for i := 0; i < 60; i++ {
+		poolDequeue.Go(func() {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				for {
+					data, ok := q.Dequeue()
+					if ok {
+						m2.Add(data)
+						break
+					}
+				}
+			}
+		})
+	}
+	wg.Wait()
+	time.Sleep(1 * time.Second)
+	t.Log(poolEnqueue.WorkerCount(), poolDequeue.WorkerCount(), m1.Len(), m2.Len())
+	assert.Equal(t, m1.Len(), m2.Len())
+}
+
 func TestAtomicOR(t *testing.T) {
 	a := uint32(0b10101101)
 	b := uint32(0b11001011)
@@ -409,4 +464,42 @@ func TestCASP(t *testing.T) {
 	ok = CASPUint128((*uint128)(unsafe.Pointer(addr)), 123, 456, 789, 101112)
 	assert.True(t, ok)
 	assert.Equal(t, node128{data1: 789, data2: 101112}, *addr)
+}
+
+func TestDWCAS(t *testing.T) {
+	addr := &uint128{123, 456}
+	ok := CASUint128(addr, uint128{121, 456}, uint128{789, 101112})
+	assert.False(t, ok)
+	assert.Equal(t, uint128{123, 456}, *addr)
+
+	ok = CASUint128(addr, uint128{123, 400}, uint128{789, 101112})
+	assert.False(t, ok)
+	assert.Equal(t, uint128{123, 456}, *addr)
+
+	ok = CASUint128(addr, uint128{123, 456}, uint128{789, 101112})
+	assert.True(t, ok)
+	assert.Equal(t, uint128{789, 101112}, *addr)
+}
+
+func TestLoadUint128(t *testing.T) {
+	addr := &node128{data1: 123, data2: 456}
+	data := [8]uint128{}
+	var wg sync.WaitGroup
+	wg.Add(8)
+	for i := 0; i < 8; i++ {
+		i := i
+		go func() {
+			data[i] = loadUint128((*uint128)(unsafe.Pointer(addr)))
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	t.Log(data)
+}
+
+func TestCasScqNode128(t *testing.T) {
+	addr := &scqNode128{flag: 123, data: 456}
+	ok := compareAndSwapSCQNodePointer(addr, scqNode128{123, 456}, scqNode128{789, 101112})
+	assert.True(t, ok)
+	assert.Equal(t, scqNode128{flag: 789, data: 101112}, *addr)
 }

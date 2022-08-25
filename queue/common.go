@@ -50,7 +50,7 @@ func cacheRemap8BSCQRaw(index uint64) uint64 {
 	return (rawIndex >> (order - 2)) | ((index << 3) & (scqsize - 1))
 }
 
-func cacheRemap8BSCQ(index uint64) uint64 {
-	rawIndex := index & (qsize - 1)
-	return (rawIndex >> (order - 3)) | ((index << 3) & (qsize - 1))
+func cacheRemap8BSCQRaw2(index uint64) uint64 {
+	rawIndex := index & uint64(scqsize-1)
+	return ((index << 5) | (rawIndex >> 11)) & uint64(scqsize-1)
 }
