@@ -11,11 +11,13 @@ import (
 //        Cycle(62-order bits) + IsSafe(1 bit) + IsUnused(1 bit) + Index(order bits)
 type ScqCas2 struct {
 	head      uint64
-	_         [unsafe.Sizeof(cpu.CacheLinePad{})]byte
+	_         [unsafe.Sizeof(cpu.CacheLinePad{}) - 8]byte
 	tail      uint64
-	_         [unsafe.Sizeof(cpu.CacheLinePad{})]byte
+	_         [unsafe.Sizeof(cpu.CacheLinePad{}) - 8]byte
 	threshold int64
-	entries   *[scqsize]scqNode128
+	_         [unsafe.Sizeof(cpu.CacheLinePad{}) - 8]byte
+	next      *ScqCas2
+	entries   *[scqsize]uint128
 }
 
 func NewScqCas2() *ScqCas2 {
@@ -23,10 +25,11 @@ func NewScqCas2() *ScqCas2 {
 		tail:      scqsize,
 		head:      scqsize,
 		threshold: -1,
+		next:      nil,
 	}
-	q.entries = new([scqsize]scqNode128)
+	q.entries = new([scqsize]uint128)
 	for i, _ := range q.entries {
-		q.entries[i] = scqNode128{DWUnused | DWFlagSafe, 0}
+		q.entries[i] = uint128{DWUnused | DWFlagSafe, 0}
 	}
 	return q
 }
@@ -45,24 +48,30 @@ type scqNode128 struct {
 }
 
 func (q *ScqCas2) Enqueue(val uint64) bool {
+	if (atomic.LoadUint64(&q.tail) & DWUnused) == DWUnused {
+		return false
+	}
+
 	if atomic.LoadUint64(&q.tail) >= atomic.LoadUint64(&q.head)+scqsize {
 		return false
 	}
+
 	var tail, j, tcycle, ecycle, isSafe, isUnused uint64
-	var ent scqNode128
-	newEnt := scqNode128{DWFlagSafe, val}
+	var ent uint128
+	newEnt := uint128{DWFlagSafe, val}
+
 	for {
 		tail = atomic.AddUint64(&q.tail, 1) - 1
 		tcycle = (tail & ^(scqsize - 1)) >> (order + 1) // Cycle(T) actually equals (tcycle >> (order+2))
 		j = cacheRemap8BSCQRaw(tail)
 	EnqueueRELOAD:
-		ent = loadSCQNodePointer(unsafe.Pointer(&q.entries[j]))
-		ecycle = ent.flag & ^DWMask
-		isUnused = ent.flag & DWUnused
-		isSafe = ent.flag & DWFlagSafe
+		ent = loadUint128(&q.entries[j])
+		ecycle = ent[0] & ^DWMask
+		isUnused = ent[0] & DWUnused
+		isSafe = ent[0] & DWFlagSafe
 		if ecycle < tcycle && isUnused == DWUnused && (isSafe == DWFlagSafe || atomic.LoadUint64(&q.head) <= tail) {
-			newEnt.flag = tcycle | DWFlagSafe
-			if !compareAndSwapSCQNodePointer(&q.entries[j], ent, newEnt) {
+			newEnt[0] = tcycle | DWFlagSafe
+			if !CASUint128(&q.entries[j], ent, newEnt) {
 				goto EnqueueRELOAD
 			}
 			if atomic.LoadInt64(&q.threshold) != DWResetThreshold {
@@ -81,28 +90,28 @@ func (q *ScqCas2) Dequeue() (val uint64, ok bool) {
 		return empty, false
 	}
 	var head, j, hcycle, ecycle, isSafe, isUnused, tail uint64
-	var ent, newEnt scqNode128
+	var ent, newEnt uint128
 	for {
 		head = atomic.AddUint64(&q.head, 1) - 1
 		hcycle = (head & ^(scqsize - 1)) >> (order + 1)
 		j = cacheRemap8BSCQRaw(head)
 	DequeueRELOAD:
-		ent = loadSCQNodePointer(unsafe.Pointer(&q.entries[j]))
-		ecycle = ent.flag & ^DWMask
-		isUnused = ent.flag & DWUnused
-		isSafe = ent.flag & DWFlagSafe
+		ent = loadUint128(&q.entries[j])
+		ecycle = ent[0] & ^DWMask
+		isUnused = ent[0] & DWUnused
+		isSafe = ent[0] & DWFlagSafe
 		//fmt.Printf("head, hcycle, ecycle, eindex, isSafe: (%v, %v, %v, %v, %v)\n", head, hcycle, ecycle, eindex, isSafe)
 		if ecycle == hcycle {
-			atomicOrUint64(&(q.entries[j].flag), DWUnused)
-			return ent.data, true
+			atomicOrUint64(&(q.entries[j][0]), DWUnused)
+			return ent[1], true
 		}
 		if ecycle < hcycle {
-			newEnt.flag = ecycle
-			newEnt.data = ent.data
+			newEnt[0] = ecycle
+			newEnt[1] = ent[1]
 			if isUnused == DWUnused {
-				newEnt.flag = hcycle | isSafe | DWUnused
+				newEnt[0] = hcycle | isSafe | DWUnused
 			}
-			if !compareAndSwapSCQNodePointer(&q.entries[j], ent, newEnt) {
+			if !CASUint128(&q.entries[j], ent, newEnt) {
 				goto DequeueRELOAD
 			}
 		}

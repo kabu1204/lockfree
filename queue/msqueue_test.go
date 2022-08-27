@@ -371,7 +371,8 @@ func TestScq_Dequeue(t *testing.T) {
 }
 
 func TestScqCas2_Dequeue(t *testing.T) {
-	q := NewScqCas2()
+	//q := NewScqCas2()
+	q := NewLSCQ()
 	poolEnqueue := gopool.NewPool("pool", 60, &gopool.Config{})
 	poolDequeue := gopool.NewPool("depool", 60, &gopool.Config{})
 	m1 := skipset.NewUint64()
@@ -381,17 +382,19 @@ func TestScqCas2_Dequeue(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		poolEnqueue.Go(func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < 20000; j++ {
 				val := fastrand.Uint64()
 				m1.Add(val)
 				q.Enqueue(val)
 			}
 		})
 	}
+	//wg.Wait()
+	//wg.Add(60)
 	for i := 0; i < 60; i++ {
 		poolDequeue.Go(func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < 20000; j++ {
 				for {
 					data, ok := q.Dequeue()
 					if ok {
@@ -403,7 +406,6 @@ func TestScqCas2_Dequeue(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	time.Sleep(1 * time.Second)
 	t.Log(poolEnqueue.WorkerCount(), poolDequeue.WorkerCount(), m1.Len(), m2.Len())
 	assert.Equal(t, m1.Len(), m2.Len())
 }
