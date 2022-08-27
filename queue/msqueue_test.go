@@ -132,6 +132,22 @@ func BenchmarkMSQueuePoolReadWrite(b *testing.B) {
 	})
 }
 
+func BenchmarkSelfLSCQReadWrite(b *testing.B) {
+	b.Run("50Enqueue50Dequeue/SelfLSCQ", func(b *testing.B) {
+		q := NewLSCQ()
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if fastrand.Uint32n(2) == 0 {
+					q.Enqueue(uint64(fastrand.Uint32()))
+				} else {
+					q.Dequeue()
+				}
+			}
+		})
+	})
+}
+
 func BenchmarkLSCQueueReadWrite(b *testing.B) {
 	b.Run("50Enqueue50Dequeue/LSCQueue", func(b *testing.B) {
 		q := lscq.NewUint64()
@@ -372,14 +388,15 @@ func TestScq_Dequeue(t *testing.T) {
 
 func TestScqCas2_Dequeue(t *testing.T) {
 	//q := NewScqCas2()
-	q := NewLSCQ()
-	poolEnqueue := gopool.NewPool("pool", 60, &gopool.Config{})
-	poolDequeue := gopool.NewPool("depool", 60, &gopool.Config{})
+	q := lscq.NewUint64()
+	poolEnqueue := gopool.NewPool("pool", 600, &gopool.Config{})
+	poolDequeue := gopool.NewPool("depool", 600, &gopool.Config{})
 	m1 := skipset.NewUint64()
 	m2 := skipset.NewUint64()
 	var wg sync.WaitGroup
-	wg.Add(120)
-	for i := 0; i < 60; i++ {
+	wg.Add(1200)
+	start := time.Now()
+	for i := 0; i < 600; i++ {
 		poolEnqueue.Go(func() {
 			defer wg.Done()
 			for j := 0; j < 20000; j++ {
@@ -391,7 +408,7 @@ func TestScqCas2_Dequeue(t *testing.T) {
 	}
 	//wg.Wait()
 	//wg.Add(60)
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 600; i++ {
 		poolDequeue.Go(func() {
 			defer wg.Done()
 			for j := 0; j < 20000; j++ {
@@ -406,6 +423,7 @@ func TestScqCas2_Dequeue(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	t.Logf("time elapsed: %f ns/op", float64(time.Since(start).Nanoseconds())/float64(2*600*20000))
 	t.Log(poolEnqueue.WorkerCount(), poolDequeue.WorkerCount(), m1.Len(), m2.Len())
 	assert.Equal(t, m1.Len(), m2.Len())
 }
